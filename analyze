@@ -1,0 +1,12 @@
+#!/bin/bash
+
+TICKER=$(echo "$1" | tr '[:lower:]' '[:upper:]')
+
+# Use the venv's Python explicitly
+VENV_PY="./venv/bin/python"
+
+# Fetch data
+$VENV_PY fetch_ticker.py "$TICKER"
+
+# Run rules
+$VENV_PY check_rules2.py "$TICKER"
