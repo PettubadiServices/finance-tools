@@ -1,0 +1,210 @@
+Finance Tools — Equity Analyzer (v1.1)
+A command‑line equity analysis engine that merges Yahoo Finance, Finviz, and custom rule‑based logic to generate a structured, multi‑factor evaluation of any stock.
+
+This tool is designed for options strategy decision‑making, trend classification, and fundamental screening — all in one unified output.
+
+🔍 What This Tool Does
+When you run:
+
+Code
+￼
+￼
+Copy
+./analyze TICKER
+The system:
+
+Fetches raw data from Yahoo Finance
+
+Scrapes supplemental metrics from Finviz
+
+Merges both sources into a unified JSON file
+
+Applies rule‑based scoring across:
+
+Balance sheet strength
+
+Valuation
+
+Growth
+
+Profitability
+
+Trend structure (SMA50/SMA200)
+
+Options suitability (CSP, CC, Long Calls)
+
+Prints a clean, color‑coded analysis to the terminal
+
+Saves a full data snapshot as TICKER.json
+
+🧠 Core Philosophy
+This project is built on three principles:
+
+1. No single metric is enough
+True signal emerges only when fundamentals, trend, volatility, and sentiment are combined.
+
+2. SMA and EMA are two schools of thought
+Both are valid. SMA defines structure, EMA defines momentum.
+The engine currently uses SMA50/SMA200 for structural trend — EMA momentum will be added in v1.2.
+
+3. There is no end to better
+The analyzer is intentionally modular so new layers can be added without breaking existing logic.
+
+📦 Current Features (v1.1)
+✔ Fundamental Analysis
+Debt, cash, net debt
+
+EBITDA coverage
+
+Free cash flow coverage
+
+ROE
+
+Sector‑adjusted P/E evaluation
+
+✔ Valuation
+Forward P/E
+
+Trailing P/E
+
+PEG
+
+EV/EBITDA (when available)
+
+Free Cash Flow Yield
+
+✔ Growth
+Revenue YoY
+
+EPS YoY
+
+3‑year CAGR (when available)
+
+✔ Trend Classification (NEW in v1.1)
+Using SMA50 and SMA200 with tolerance logic:
+
+🟢 Strong uptrend
+
+🟡 Weak uptrend
+
+⚪ Neutral
+
+🟠 Weak downtrend
+
+🔴 Strong downtrend
+
+✔ Options Strategy Suitability
+Each strategy is scored independently:
+
+Cash‑Secured Puts (CSP)
+
+Covered Calls (CC)
+
+Long Calls (Directional)
+
+Inputs include:
+
+Trend
+
+Beta
+
+Short interest
+
+Volatility regime (coming soon)
+
+Analyst rating
+
+RSI (when available)
+
+🗂 Repository Structure
+Code
+￼
+￼
+Copy
+finance-tools/
+│
+├── analyze               # Main CLI entry point
+├── fetch_ticker2.py      # Yahoo Finance + Finviz data fetcher
+├── check_rules2.py       # Analyzer logic + scoring engine
+├── utils/                # Helper functions (future)
+│
+└── TICKER.json           # Auto-generated data snapshots
+🚀 Roadmap (High‑Impact Upgrades Coming Next)
+These are the next layers we will build together — in order of impact:
+
+1. Volatility Regime Detection (HUGE impact)
+Uses IV percentile to classify:
+
+Low vol regime
+
+Normal regime
+
+High vol regime
+
+This dramatically improves CSP/CC/Long Call scoring.
+
+2. Momentum Confirmation Layer
+Add:
+
+EMA8 / EMA21
+
+RSI
+
+ROC(10)
+
+MACD histogram
+
+This separates trend direction from trend force.
+
+3. Volume Regime Detection
+Volume vs 20‑day average
+Volume trend
+Volume spikes
+OBV slope
+
+This validates breakouts, reversals, and trend strength.
+
+4. Market Regime Overlay
+SPY trend
+Sector ETF trend (e.g., XLE for EQT)
+Breadth indicators
+
+This makes the analyzer market‑aware.
+
+🛠 How to Run
+Code
+￼
+￼
+Copy
+chmod +x analyze
+./analyze AAPL
+./analyze EQT
+./analyze MSFT
+Each run generates:
+
+A terminal report
+
+A JSON snapshot
+
+📄 Versioning
+v1.0 — Initial scripts
+
+v1.1 — Stable analyzer core
+
+Correct SMA200
+
+Correct trend logic
+
+Correct valuation block
+
+Correct FCF yield
+
+Correct merge logic
+
+JSON schema stabilized
+
+v1.2 (next) — Volatility + Momentum + Volume layers
+
+🤝 Contributions
+This project is evolving rapidly.
+Future modules will be added in clean, isolated layers to preserve stability.
