@@ -6,7 +6,7 @@ TICKER=$(echo "$1" | tr '[:lower:]' '[:upper:]')
 VENV_PY="./venv/bin/python"
 
 # Fetch data
-$VENV_PY fetch_ticker2.py "$TICKER"
+$VENV_PY fetch_ticker3.py "$TICKER"
 
 # Run rules
-$VENV_PY check_rules2.py "$TICKER"
+$VENV_PY check_rules3.py "$TICKER"
