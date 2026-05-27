@@ -2,6 +2,61 @@
 import json
 import sys
 
+# Sector PE ranges - Always be the first and nothing before it
+SECTOR_PE_RANGES = {
+    "Technology": (18, 30),
+    "Communication Services": (14, 22),
+    "Consumer Cyclical": (12, 20),
+    "Consumer Defensive": (15, 22),
+    "Healthcare": (14, 22),
+    "Financial Services": (10, 16),
+    "Industrials": (12, 18),
+    "Energy": (8, 12),
+    "Basic Materials": (10, 16),
+    "Real Estate": (25, 35),
+    "Utilities": (14, 20)
+}
+
+# Trend strength
+def trend_strength(price, sma50, sma200):
+    """
+    Classify trend strength using SMA50 and SMA200 structure.
+    Returns (emoji, message)
+    """
+
+    if price is None or sma50 is None or sma200 is None:
+        return ("⚪", "Trend data unavailable")
+
+    # 1% tolerance around SMA200
+    tol = 0.01
+    above200 = price >= sma200 * (1 - tol)
+    below200 = price <= sma200 * (1 + tol)
+
+    # --- Strong Uptrend ---
+    if price > sma50 > sma200:
+        return ("🟢", "Strong uptrend")
+
+    # --- Weak Uptrend ---
+    if price > sma50 and sma50 < sma200:
+        return ("🟡", "Weak uptrend")
+
+    # --- Neutral Trend ---
+    if (sma50 > price > sma200) or (sma200 > price > sma50):
+        return ("⚪", "Neutral trend")
+
+    # --- Weak Downtrend ---
+    # Allow price to be slightly below SMA200 (within tolerance)
+    if price < sma50 and above200:
+        return ("🟠", "Weak downtrend")
+
+    # --- Strong Downtrend ---
+    if price < sma50 < sma200:
+        return ("🔴", "Strong downtrend")
+
+    return ("⚪", "Trend unclear")
+
+
+
 # ============================
 # Helper Functions (Option A)
 # ============================
@@ -42,20 +97,69 @@ def roe_icon(r):
         return "🟡"
     return "🔴"
 
-# Sector P/E ranges
-sector_pe_ranges = {
-    "Technology": (20, 35),
-    "Consumer Cyclical": (15, 25),
-    "Industrials": (15, 22),
-    "Healthcare": (15, 25),
-    "Financial Services": (10, 15),
-    "Energy": (8, 12),
-    "Utilities": (12, 18),
-    "Real Estate": (15, 25),
-    "Basic Materials": (12, 18),
-    "Communication Services": (15, 25),
-    "Consumer Defensive": (15, 22),
-}
+# Normalize Div yields
+def normalize_yield(value):
+    """
+    Normalize dividend yield values from Yahoo Finance.
+
+    Rules:
+    - None → None
+    - 0 < value < 1 → already a decimal (e.g., 0.032 = 3.2%)
+    - 1 ≤ value ≤ 25 → treat as percentage (e.g., 3.2 = 3.2%)
+    - value > 25 → invalid (Yahoo error or special dividend)
+    """
+    if value is None:
+        return None
+
+    try:
+        v = float(value)
+    except:
+        return None
+
+    # Case 1: Already a decimal (0.0–1.0)
+    if 0 < v < 1:
+        return v
+
+    # Case 2: Looks like a percentage (1–25)
+    if 1 <= v <= 25:
+        return v / 100.0
+
+    # Case 3: Unrealistic → treat as invalid
+    return None
+
+# PE Helper - Issue resolution
+def assess_sector_pe(forward_pe, sector_low, sector_high):
+    """
+    Compare a company's forward P/E to its sector range with graded severity.
+    Returns a tuple: (emoji, message)
+    """
+
+    if forward_pe is None or sector_low is None or sector_high is None:
+        return ("⚪", "Insufficient data for sector comparison")
+
+    # Within sector range
+    if sector_low <= forward_pe <= sector_high:
+        return ("🟢", "Forward P/E is within sector average range")
+
+    # Slightly above (0–10%)
+    if forward_pe > sector_high and forward_pe <= sector_high * 1.10:
+        return ("🟡", "Forward P/E slightly above sector average")
+
+    # Moderately above (10–25%)
+    if forward_pe > sector_high * 1.10 and forward_pe <= sector_high * 1.25:
+        return ("🟠", "Forward P/E moderately above sector average")
+
+    # Significantly above (>25%)
+    if forward_pe > sector_high * 1.25:
+        return ("🔴", "Forward P/E significantly above sector average")
+
+    # Below sector range (value zone)
+    if forward_pe < sector_low:
+        return ("🟢", "Forward P/E below sector average — value zone")
+
+    return ("⚪", "Unable to classify P/E relative to sector")
+
+
 
 # ============================
 # MAIN
@@ -100,7 +204,7 @@ def main():
         print("Net Debt: N/A")
 
     # EBITDA / Net Debt
-    if ebitda is not None and net_debt and net_debt != 0:
+    if ebitda is not None and net_debt is not None and net_debt != 0:
         ratio = ebitda / net_debt
 
         if ratio > 3:
@@ -118,7 +222,7 @@ def main():
         print("EBITDA / Net Debt: N/A")
 
     # FCF / Net Debt
-    if fcf is not None and net_debt and net_debt != 0:
+    if fcf is not None and net_debt is not None and net_debt != 0:
         fcf_ratio = fcf / net_debt
 
         if fcf_ratio > 1:
@@ -138,30 +242,31 @@ def main():
     # ============================
     # DIVIDEND SAFETY
     # ============================
+    div_yield_raw = data.get("dividendYield")
+    avg_yield_raw = data.get("fiveYearAvgDividendYield")
+    payout_ratio = data.get("payoutRatio")
+
+    div_yield = normalize_yield(div_yield_raw)
+    avg_yield = normalize_yield(avg_yield_raw)
+
     print("\n=== DIVIDEND SAFETY ===")
 
-    div_yield = data.get("dividend_yield")
-    div_5yr = data.get("five_year_avg_dividend_yield")
-    payout = data.get("payout_ratio")
-
-    if not div_yield and not payout:
-        print("This is a non‑dividend‑paying stock.")
+    # Dividend Yield
+    if div_yield is None:
+        print("Dividend Yield: unavailable (data error)")
     else:
-        if div_yield:
-            print(f"Dividend Yield: {div_yield*100:.2f}%")
-        else:
-            print("Dividend Yield: N/A")
+        print(f"Dividend Yield: {div_yield*100:.2f}%")
 
-        if div_5yr:
-            print(f"5yr Avg Yield:  {div_5yr*100:.2f}%")
-        else:
-            print("5yr Avg Yield:  N/A")
+    # 5yr Avg Yield
+    if avg_yield is None:
+        print("5yr Avg Yield:  unavailable (data error)")
+    else:
+        print(f"5yr Avg Yield:  {avg_yield*100:.2f}%")
 
-        if payout is not None:
-            icon = "🟢" if payout < 0.5 else "🟡" if payout < 0.8 else "🔴"
-            print(f"{icon} Payout Ratio: {payout*100:.2f}%")
-        else:
-            print("Payout Ratio: N/A")
+    # Payout Ratio
+    if payout_ratio is not None:
+        print(f"🟢 Payout Ratio: {payout_ratio*100:.2f}%")
+
 
     # ============================
     # 52-WEEK RANGE
@@ -186,44 +291,52 @@ def main():
         print("\n52-Week Range Position: N/A")
 
     # ============================
-    # PRICE TARGETS
+    # PRICE TARGETS (Merged)
     # ============================
     print("\n=== PRICE TARGETS ===")
-    avg_pt = data.get("avg_pt")
-    high_pt = data.get("high_pt")
-    low_pt = data.get("low_pt")
-    pt_up = data.get("pt_up")
 
-    print(f"Average Price Target: {avg_pt}")
-    print(f"High Price Target:    {high_pt}")
-    print(f"Low Price Target:     {low_pt}")
+    pt = data.get("price_target_merged")
 
-    if pt_up is not None:
-        icon = "🟢" if pt_up > 0 else "🔴"
-        print(f"{icon} Upside to Avg PT: {pt_up*100:.1f}%")
+    if pt is not None:
+        print(f"Price Target (Finviz): {pt}")
     else:
-        print("Upside to Avg PT: N/A")
+        print("Price Target: N/A")
 
     # ============================
-    # VALUATION
+    # VALUATION (Merged)
     # ============================
     print("\n=== VALUATION ===")
 
-    fpe = data.get("forward_pe")
-    tpe = data.get("trailing_pe")
-    peg = data.get("peg")
-    ev = data.get("ev_ebitda")
-    fcfy = data.get("fcf_yield")
+    fpe = data.get("forward_pe_merged")
+    tpe = data.get("pe_ratio_merged")
+    peg = data.get("peg_merged")
+
+    # Enterprise Value and EV/EBITDA
+    ev = data.get("enterprise_value")
+    ev_ebitda = None
+    if ev is not None and ebitda is not None and ebitda != 0:
+        ev_ebitda = ev / ebitda
+
+    # Free Cash Flow Yield
+    market_cap = data.get("market_cap")
+    fcfy = None
+    if fcf is not None and market_cap:
+        fcfy = fcf / market_cap
 
     print(f"{pe_icon(fpe)} Forward P/E:     {fpe}")
     print(f"{pe_icon(tpe)} Trailing P/E:    {tpe}")
     print(f"PEG Ratio:         {peg}")
-    print(f"{ev_icon(ev)} EV / EBITDA:     {ev}")
+
+    if ev_ebitda is not None:
+        print(f"{ev_icon(ev_ebitda)} EV / EBITDA:     {ev_ebitda:.2f}")
+    else:
+        print("EV / EBITDA: N/A")
 
     if fcfy is not None:
         print(f"{fcf_icon(fcfy)} Free Cash Flow Yield: {fcfy*100:.2f}%")
     else:
         print("Free Cash Flow Yield: N/A")
+
 
     # ============================
     # GROWTH TRENDS
@@ -234,40 +347,89 @@ def main():
     print(f"Revenue 3Y CAGR:    {data.get('rev_cagr')}")
     print(f"EPS 3Y CAGR:        {data.get('eps_cagr')}")
 
-    # ============================
-    # COMPANY PROFILE
-    # ============================
+    # === COMPANY PROFILE ===
     print("\n=== COMPANY PROFILE ===")
     sector = data.get("sector")
+    sector_low = data.get("sectorPELow")
+    sector_high = data.get("sectorPEHigh")
+
+    # From FinVIZ
+    forward_pe = data.get("forward_pe_merged")
+
+
     print(f"Sector: {sector}")
 
-    if sector in sector_pe_ranges and fpe is not None:
-        low, high = sector_pe_ranges[sector]
-        print(f"Sector Avg P/E Range: {low}–{high}")
+    # Normalize sector key for fallback lookup
+    sector_key = (sector or "").strip()
 
-        if fpe < low:
-            print("🟢 Forward P/E is below sector average")
-        elif fpe > high:
-            print("🔴 Forward P/E is above sector average")
-        else:
-            print("🟡 Forward P/E is within sector range")
-    else:
-        print("Sector P/E comparison not available")
+    # Apply fallback if Yahoo Finance did not provide sector P/E range
+    if sector_low is None or sector_high is None:
+        if sector_key in SECTOR_PE_RANGES:
+            sector_low, sector_high = SECTOR_PE_RANGES[sector_key]
+
+    print(f"Sector Avg P/E Range: {sector_low}–{sector_high}")
+
+    emoji, msg = assess_sector_pe(forward_pe, sector_low, sector_high)
+    print(f"{emoji} {msg}")
+
 
     # ============================
     # PROFITABILITY
     # ============================
     print("\n=== PROFITABILITY ===")
-    roe = data.get("roe")
+    roe = data.get("roe_merged")
+
     if roe is not None:
         print(f"{roe_icon(roe)} Return on Equity (ROE): {roe*100:.2f}%")
     else:
         print("Return on Equity (ROE): N/A")
 
 
+
+    # Options signals prep work
+    # Compute trend strength once
+    f50 = data.get("sma50_merged")
+    f200 = data.get("sma200_merged")
+
+    price = data.get("price")
+
+    # Compute trend stregnth once - for all csp, cc, and long call - option signals
+    trend_emoji, trend_msg = trend_strength(price, f50, f200)
+
+    # Trend Strength Scoring Adjustments
+    trend_score_csp = 0
+    trend_score_cc = 0
+    trend_score_long = 0
+
+    if trend_msg == "Strong uptrend":
+        trend_score_csp += 1
+        trend_score_cc -= 3
+        trend_score_long += 3
+
+    elif trend_msg == "Weak uptrend":
+        trend_score_csp += 2
+        trend_score_cc += 1
+        trend_score_long += 2
+
+    elif trend_msg == "Neutral trend":
+        trend_score_csp += 2
+        trend_score_cc += 2
+        trend_score_long -= 1
+
+    elif trend_msg == "Weak downtrend":
+        trend_score_csp += 3
+        trend_score_cc += 2
+        trend_score_long -= 2
+
+    elif trend_msg == "Strong downtrend":
+        trend_score_csp -= 2
+        trend_score_cc += 1
+        trend_score_long -= 4
+
     # ============================
     # OPTIONS SIGNALS — CSP (Cash-Secured Puts)
     # ============================
+
     print("\n=== OPTIONS SIGNALS — CSP (New or Adding Position) ===")
 
     # Beta
@@ -282,8 +444,8 @@ def main():
     else:
         print("Beta: N/A")
 
-    # Short Interest
-    si = data.get("short_interest")
+    # Short Interest (Merged)
+    si = data.get("short_float_merged")
     if si is not None:
         if si < 0.05:
             print(f"🟢 Short Interest: {si*100:.2f}%  (low squeeze/downside risk)")
@@ -322,8 +484,8 @@ def main():
     else:
         print("Earnings Date: N/A")
 
-    # Trend (50-day)
-    f50 = data.get("fifty_day_avg")
+    # Trend (50-day) — Merged
+    f50 = data.get("sma50_merged")
     price = data.get("price")
     if f50 and price:
         if price > f50:
@@ -332,6 +494,8 @@ def main():
             print(f"🔴 Price below 50-day average — downtrend risk")
     else:
         print("50-day trend: N/A")
+
+    print(f"{trend_emoji} {trend_msg}")
 
     # ============================
     # OPTIONS SIGNALS — COVERED CALLS (Existing Position)
@@ -348,8 +512,8 @@ def main():
     else:
         print("IV Rank: N/A")
 
-    # RSI
-    rsi = data.get("rsi")
+    # RSI (Merged)
+    rsi = data.get("rsi_merged")
     if rsi is not None:
         if rsi > 70:
             print(f"🟢 RSI: {rsi:.1f}  (overbought — great CC opportunity)")
@@ -369,8 +533,8 @@ def main():
     else:
         print("50-day trend: N/A")
 
-    # Analyst Rating
-    rating = data.get("analyst_rating")
+    # Analyst Rating (Merged)
+    rating = data.get("analyst_rating_merged")
     if rating:
         print(f"Analyst Rating: {rating}")
     else:
@@ -392,7 +556,7 @@ def main():
     # ============================
     print("\n=== OPTIONS SIGNALS — LONG CALLS (Bullish Directional) ===")
 
-    # RSI
+    # RSI (already merged earlier)
     if rsi is not None:
         if rsi < 30:
             print(f"🟢 RSI: {rsi:.1f}  (oversold — good long call setup)")
@@ -412,7 +576,8 @@ def main():
     else:
         print("50-day trend: N/A")
 
-    # Analyst Rating
+    # Analyst Rating (Merged)
+    rating = data.get("analyst_rating_merged")
     if rating:
         print(f"Analyst Rating: {rating}")
     else:
@@ -445,7 +610,6 @@ def main():
     # ============================
     print("\n=== OPTIONS SUMMARY SCORE ===")
 
-    # Helper scoring function
     def score_icon(score):
         if score >= 7:
             return "🟢"
@@ -462,7 +626,7 @@ def main():
         elif beta < 1.5: csp_score += 2
         else: csp_score += 1
 
-    # Short Interest
+    # Short Interest (already merged earlier)
     if si is not None:
         if si < 0.05: csp_score += 3
         elif si < 0.15: csp_score += 2
@@ -495,7 +659,7 @@ def main():
         if ivr > 0.5: cc_score += 3
         else: cc_score += 1
 
-    # RSI
+    # RSI (already merged earlier)
     if rsi is not None:
         if rsi > 70: cc_score += 3
         elif rsi < 30: cc_score += 1
@@ -517,7 +681,7 @@ def main():
     # --- LONG CALL Score ---
     lc_score = 0
 
-    # RSI
+    # RSI (already merged earlier)
     if rsi is not None:
         if rsi < 30: lc_score += 3
         elif rsi > 70: lc_score += 1
@@ -534,7 +698,8 @@ def main():
         elif beta < 1.5: lc_score += 3
         else: lc_score += 2
 
-    # Analyst Rating
+    # Analyst Rating (Merged)
+    rating = data.get("analyst_rating_merged")
     if rating:
         if rating in ("strong_buy", "buy"): lc_score += 3
         elif rating == "hold": lc_score += 2
@@ -548,6 +713,8 @@ def main():
 
     print(f"Long Call Suitability: {score_icon(lc_score)} {lc_score}/10")
 
-
 if __name__ == "__main__":
     main()
+
+
+
